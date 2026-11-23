@@ -1,0 +1,95 @@
+// pdp 是 PDP（Personal DevPack）的 MCP server：
+// 维护本机开发环境的软件清单，经 stdio 提供给现有 agent。
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/g726unknown/pdp/internal/executor"
+	"github.com/g726unknown/pdp/internal/mcpserver"
+	"github.com/g726unknown/pdp/internal/observer"
+	"github.com/g726unknown/pdp/internal/recorder"
+)
+
+const version = "0.1.0-dev"
+
+// instructions 是 initialize 握手时给客户端的服务说明（DESIGN §1 的口径）。
+// 只描述已实现的能力——没上线的承诺写进这里就是撒谎。
+const instructions = `PDP maintains the software inventory of this Linux machine (list.json): record which packages to keep, check the list against the system, and inspect or remove entries.
+Write operations (pdp_list_add, pdp_list_remove) only modify PDP's own list.json; tell the user what will be written before calling them. PDP never installs, uninstalls, or upgrades anything on the system.
+Read resources pdp://guide for the standard flow and pdp://state/inventory for the raw list.
+Backups and restoration are planned but NOT implemented in this stage; do not claim otherwise.`
+
+// stateDir 解析状态目录：
+// PDP_HOME > ${XDG_DATA_HOME}/pdp > ~/.local/share/pdp。
+// 优先级与语义见 AGENTS.md 技术决定。
+//
+// home 取 getenv("HOME") 而不是 os.UserHomeDir()：后者内部也读环境，
+// 但不接受注入——为它单独破坏测试性不值得（参数化注入，老规矩）。
+func stateDir(getenv func(string) string) (string, error) {
+	if h := getenv("PDP_HOME"); h != "" {
+		return h, nil
+	}
+	if x := getenv("XDG_DATA_HOME"); x != "" {
+		return filepath.Join(x, "pdp"), nil
+	}
+	if h := getenv("HOME"); h != "" {
+		return filepath.Join(h, ".local", "share", "pdp"), nil
+	}
+	return "", errors.New("cannot determine state dir: set PDP_HOME")
+}
+
+func main() {
+	// stdout 属于 JSON-RPC 通道，日志必须走 stderr。
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// main 只负责报告退出状态；真正的装配在 run 里，便于测试与复用。
+	if err := run(os.Getenv, logger); err != nil {
+		logger.Error("server exited", "err", err)
+		os.Exit(1)
+	}
+}
+
+// run 的装配顺序固定：解析状态目录 → 三层组装 → 注册 → stdio 运行。
+func run(getenv func(string) string, logger *slog.Logger) error {
+	// Ctrl-C 和 SIGTERM 都会取消 ctx，进而让 server 关闭会话并返回。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	dir, err := stateDir(getenv)
+	if err != nil {
+		return err
+	}
+
+	rec := recorder.Open(dir)
+	svc := executor.New(observer.New(observer.OSExecer{}), rec)
+	srv := mcp.NewServer(
+		&mcp.Implementation{
+			Name:    "pdp",
+			Title:   "Personal DevPack",
+			Version: version,
+		},
+		&mcp.ServerOptions{Logger: logger, Instructions: instructions},
+	)
+	mcpserver.Register(srv, svc, mcpserver.Config{StateDir: dir})
+
+	logger.Info("pdp mcp server starting",
+		"version", version, "transport", "stdio", "state_dir", dir)
+
+	// Run 会阻塞到 ctx 取消或对端断开（stdin EOF）。
+	err = srv.Run(ctx, &mcp.StdioTransport{})
+	if errors.Is(err, context.Canceled) {
+		// Ctrl-C / SIGTERM 是正常关闭，不是 ERROR——
+		// 阶段一 TODO 里这条欠的账在此结清。
+		return nil
+	}
+	return err
+}

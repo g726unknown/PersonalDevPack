@@ -1,0 +1,10 @@
+NAME="Arch Linux"
+PRETTY_NAME="Arch Linux"
+ID=arch
+BUILD_ID=rolling
+
+# Comment lines are allowed in os-release.
+ANSI_COLOR="38;2;23;147;209"
+HOME_URL="https://archlinux.org/"
+this line has no equals sign
+LOGO=archlinux-logo

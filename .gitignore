@@ -1,0 +1,9 @@
+MCP/pdp
+*.test
+*.out
+.idea/
+.vscode/
+*.swp
+.DS_Store
+list.json
+.list.lock
