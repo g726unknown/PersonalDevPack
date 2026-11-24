@@ -146,6 +146,13 @@ func TestReadGuide(t *testing.T) {
 	if !strings.Contains(c.Text, "pdp_list_add") {
 		t.Error("guide text 缺少 pdp_list_add 字样（标准流程段应提到）")
 	}
+	// #14b：自行/询问分界节的关键字级断言（不钉全句，措辞可打磨）。
+	if !strings.Contains(c.Text, "自行决断") {
+		t.Error("guide text 缺少 自行决断 字样（分界节应在场）")
+	}
+	if !strings.Contains(c.Text, "先问再存档") {
+		t.Error("guide text 缺少 先问再存档 字样（隐私触发器应在场）")
+	}
 }
 
 func TestToolsUnchangedByResourceRegistration(t *testing.T) {
@@ -156,8 +163,8 @@ func TestToolsUnchangedByResourceRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools() error = %v", err)
 	}
-	if len(res.Tools) != 6 {
-		t.Errorf("len(Tools) = %d, want 6 (资源注册不得丢工具)", len(res.Tools))
+	if len(res.Tools) != 8 {
+		t.Errorf("len(Tools) = %d, want 8 (资源注册不得丢工具)", len(res.Tools))
 	}
 }
 

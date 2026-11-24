@@ -5,9 +5,12 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/g726unknown/pdp/internal/recorder"
 )
 
 // ShowEntry 是 ShowList 输出里的一个条目（未移除）。
+// Config 为 nil 表示尚未讨论过备份范围（≠ include:false 的明确不备份）。
 type ShowEntry struct {
 	Name       string
 	Source     string
@@ -15,6 +18,7 @@ type ShowEntry struct {
 	Type       string
 	RecordedAt time.Time
 	CheckedAt  time.Time
+	Config     *recorder.Scope
 }
 
 // ShowResult 是 ShowList 的输出。
@@ -53,6 +57,7 @@ func (s *Service) ShowList(ctx context.Context) (ShowResult, error) {
 			Type:       p.Type,
 			RecordedAt: p.RecordedAt,
 			CheckedAt:  p.CheckedAt,
+			Config:     p.Config, // 指针直传：nil 与已判断两种状态原样上抛
 		})
 		byType[p.Type]++
 	}

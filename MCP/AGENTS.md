@@ -23,7 +23,9 @@
 - MCP SDK 用官方 `github.com/modelcontextprotocol/go-sdk` v1.8.0 的 `mcp` 包。
 - 传输只做 stdio；HTTP 等需要真实需求再加。
 - 日志用 `slog` 显式写 stderr。stdout 是 JSON-RPC 通道，任何输出到 stdout 的内容都是 bug。
-- 业务包（`internal/recorder`、`internal/observer`、`internal/executor`，以及将来的 `pathprobe` 等）不得 import `mcp`，用测试扫描 import 守住边界。
+- 业务包（`internal/recorder`、`internal/observer`、`internal/executor`、`internal/pathobserver` 等）不得 import `mcp`，用测试扫描 import 守住边界。
+- `pathobserver` 与 `observer` 因**内容政策相反而分立**（前者永不读文件内容、后者的命令输出本身就是给 LLM 的证据），不合并。阶段三备份执行器将是又一个独立包：它必须 `Open`/`WriteFile`，进任何一个只读包都会拆牌坊。
+- `pathobserver` 是备份范围判断的唯一证据来源，不外包给宿主 agent 的 shell/read：内容边界、敏感底线检查点、裸客户端可移植性都要求证据走 PDP 自己的通道。
 - 分层：`mcpserver`（MCP 外壳）→ `executor`（流程与口径：何时探查、conflict 如何映射、warning 措辞）→ `observer`（只读事实，含命令注入接口）+ `recorder`（清单数据的唯一权威：文件原子写，以及字段级规则 `List.Upsert` / `List.MarkRemoved` 纯方法；事实由 executor 以普通 struct 递入，不 import `observer`）。清单落盘为 `PDP_HOME/list.json`。
 - 不提供通用 shell 执行工具，只封装具体查询和操作。
 - 状态目录由 `PDP_HOME` 决定，默认 `${XDG_DATA_HOME:-~/.local/share}/pdp`；测试一律指向临时目录。
@@ -47,6 +49,16 @@
 - [x] 资源 + `main` 装配 + README + 真机 e2e（卡 #10 完成，2026-11-23；无状态全链探针 + 真实 agent 会话验收通过，ghostty 落盘）
 
 **阶段一收卡（2026-11-23）**：六工具三资源、90 个测试、真实 agent 会话通过。当前会话亦挂载 pdp server，验收可经协议层回读。
+
+阶段二拍板（2026-11-24）：备份范围判断全交 LLM（reason 必填存档）；**文件内容永不进模型上下文**；敏感硬底线极小集（可查看可修改）；`config` 为可选字段、`version` 保持 1。
+
+- [x] `internal/recorder`：`Scope` 结构 + `SetScope` 纯方法（卡 #11 完成，2026-11-24，recorder 38 测试；`include:false+paths` 拒绝、防御性拷贝采纳；decided_at 待补丁 #11b）
+- [x] `internal/recorder`：`Scope.DecidedAt` + `include:false` 空路径校验补全（补丁卡 #11b 完成，2026-11-24，recorder 39 测试全过）
+- [x] `internal/pathprobe` → `internal/pathobserver`：元数据探查 + 敏感底线标记（卡 #12 完成，2026-11-24，13 测试 + 真机探针；含包改名采纳、公钥误拦裁定见 #12b）
+- [x] `internal/pathobserver`：敏感底线排除 `.pub` + `MTime` 指针化（补丁卡 #12b 完成，2026-11-24，17 测试 + 真机复探收敛为 [id_ed25519]）
+- [x] `internal/executor`：`InspectPaths` / `SetScope` 接线（卡 #13 完成，2026-11-24，executor 33 测试；`ErrInvalidScope` 哨兵、SetScope guardExec 负向断言、"断言钉行为不钉措辞"经验）
+- [ ] `internal/mcpserver`：`pdp_path_inspect` / `pdp_scope_set` 上架 + 文案 + 真机 e2e（卡 #14：单测 30 + 协议探针通过，2026-11-24；executor 按用例拆分文件采纳；**待真实 agent 会话（ghostty 时刻）报备后收卡**）
+- [x] `internal/mcpserver`：自主/询问分界引导（补丁卡 #14b 完成，2026-11-24，instructions 两句 + guide 中文增节；安装位制品经协议探针核实）
 
 ## 构建与验证
 
@@ -103,15 +115,15 @@ M='{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextproto
 
 ### 后续阶段
 
-- 配置范围确认（`scope_set`）、`path_inspect`、`path_peek`
+- 阶段二（进行中）：`recorder` 的 `Scope` 存档与校验 → `pathobserver`（元数据 + 敏感底线标记）→ `executor` 的 `InspectPaths` / `SetScope` → `pdp_path_inspect` / `pdp_scope_set`
 - `pdp_package_query` 扩展查询（`pacman -Si` / `-Qo`）
-- 备份与同步（哈希 diff、原子快照、`dry_run`、失败不破坏已有数据）
+- 备份与同步（哈希 diff、原子快照、`dry_run`、失败不破坏已有数据；敏感底线物理生效）
 - 恢复（`plan_id` 两段式、dry-run、冲突检测、手工事项上报）
 
 ### 已知小瑕疵（不阻塞，随手可修）
 
+- ~~`list_show` 的 summary 复数语法~~（卡 #14 已修：`inventory: N active, M removed`）。
 - `capabilities` 里仍声明已弃用的 `logging:{}`（SDK 默认，待查关闭方式）。
-- `list_show` 的 summary 复数语法（"1 packages recorded"）。
 
 ## 待定问题
 

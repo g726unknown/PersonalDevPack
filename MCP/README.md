@@ -41,6 +41,7 @@ claude mcp add pdp -- /绝对路径/pdp
 ## 安全边界
 
 - PDP **只读写自己的 `list.json`**：不安装、不卸载、不升级任何系统软件，不修改任何配置文件。
+- PDP 的探查工具（`pdp_path_inspect`）只读路径元数据（名字、大小、权限、时间），**永不读取文件内容**。但请注意：宿主 agent 自带的能力（shell、文件读取）不受 PDP 约束——若你直接让 agent 读某个文件，那是宿主与你的事。敏感路径（如 SSH 私钥）在 PDP 工具的输出里有标记；物理拦截在备份执行时生效。
 - 写操作（`pdp_list_add` / `pdp_list_remove`）需要 `base_revision`（先 `pdp_list_show` 读一次清单），防止并发覆盖。
 - 删除是软删除（写 `removed_at` 标记），历史可查。
 - 本阶段**不含备份与恢复**；agent 不会替你做这两件事，也不要声称会。

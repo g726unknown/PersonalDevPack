@@ -16,6 +16,7 @@ import (
 	"github.com/g726unknown/pdp/internal/executor"
 	"github.com/g726unknown/pdp/internal/mcpserver"
 	"github.com/g726unknown/pdp/internal/observer"
+	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
 )
 
@@ -23,10 +24,13 @@ const version = "0.1.0-dev"
 
 // instructions 是 initialize 握手时给客户端的服务说明（DESIGN §1 的口径）。
 // 只描述已实现的能力——没上线的承诺写进这里就是撒谎。
-const instructions = `PDP maintains the software inventory of this Linux machine (list.json): record which packages to keep, check the list against the system, and inspect or remove entries.
-Write operations (pdp_list_add, pdp_list_remove) only modify PDP's own list.json; tell the user what will be written before calling them. PDP never installs, uninstalls, or upgrades anything on the system.
-Read resources pdp://guide for the standard flow and pdp://state/inventory for the raw list.
-Backups and restoration are planned but NOT implemented in this stage; do not claim otherwise.`
+const instructions = `PDP maintains the software inventory of this Linux machine (list.json): record which packages to keep, check the list against the system, inspect filesystem metadata, and archive backup-scope decisions.
+Write operations (pdp_list_add, pdp_list_remove, pdp_scope_set) only modify PDP's own list.json; tell the user what will be written before calling them. PDP never installs, uninstalls, or upgrades anything on the system.
+pdp_path_inspect is the evidence channel for backup-scope research: metadata only, never file contents — prefer it over your own shell/read so secrets stay out of the model context.
+pdp_scope_set archives the backup-scope decision you reached with the user; every path needs a reason, and decided_at is stamped automatically.
+Decide alone vs. ask by reversibility: entries are reversible and every judgment is archived with a reason, so routine calls (standard config paths like ~/.config/<pkg>, classifications) you may decide and report; ask before archiving anything that touches privacy (exclusions, include=false) or when intent is unclear. When the user asks to back up a package, raise the config-scope question yourself in the same conversation (path_inspect → propose → scope_set) instead of waiting to be asked.
+Backup execution and restoration are NOT implemented — only scope decisions are archived; do not claim backup/restore capabilities.
+Read resources pdp://guide for the standard flow and pdp://state/inventory for the raw list.`
 
 // stateDir 解析状态目录：
 // PDP_HOME > ${XDG_DATA_HOME}/pdp > ~/.local/share/pdp。
@@ -70,7 +74,9 @@ func run(getenv func(string) string, logger *slog.Logger) error {
 	}
 
 	rec := recorder.Open(dir)
-	svc := executor.New(observer.New(observer.OSExecer{}), rec)
+	// home 与 stateDir 同一注入哲学：装配点读环境、注入各层。
+	// HOME 缺席时 ~ 探查按条目报错，不影响其他能力。
+	svc := executor.New(observer.New(observer.OSExecer{}), rec, pathobserver.New(getenv("HOME")))
 	srv := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "pdp",

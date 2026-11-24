@@ -4,9 +4,15 @@
 
 ## 1. 范围
 
-第一版只回答一个问题：**这台机器上我打算保留哪些软件，清单是否和系统一致。**
+第一版回答：**这台机器上我打算保留哪些软件，清单是否和系统一致。**（阶段一，已交付）
 
-包含 6 个工具，不做备份和恢复。
+第二版追加：**每个软件要不要备份配置、备份哪些路径、排除哪些隐私——判断全部交给 LLM 与用户对话完成，PDP 只提供证据（元数据）并存档判断结果（带理由）。**（阶段二）
+
+硬边界（阶段二拍板，永久生效）：**文件内容永远不进入模型上下文**——工具结果、日志、清单文件，哪里都不去。不存在读取文件内容的工具；备份阶段的内容复制只经过程序字节管道。用户对 LLM/提供商不信任的威胁模型在此被承认。
+
+边界属于 PDP 自己的通道：PDP 的任何工具、日志与存档永不携带文件内容；宿主 agent 自带能力（shell、文件读取）不受此约束——PDP 不承诺阻止模型经宿主工具接触内容，只承诺自己永不主动暴露。
+
+包含 8 个工具（6 旧 + `pdp_path_inspect`、`pdp_scope_set`），不做备份执行和恢复。
 
 ## 2. 协议与身份
 
@@ -54,7 +60,16 @@
       "version": "0.11.2",
       "type": "devtool",
       "recorded_at": "2026-11-10T08:00:00Z",
-      "checked_at": "2026-11-17T09:30:00Z"
+      "checked_at": "2026-11-17T09:30:00Z",
+      "config": {
+        "include": true,
+        "reason": "user confirmed config is worth keeping",
+        "decided_at": "2026-11-24T09:00:00Z",
+        "paths": [
+          { "path": "~/.config/nvim",        "action": "include", "reason": "main config, user confirmed" },
+          { "path": "~/.config/nvim/.env",   "action": "exclude", "reason": "may contain tokens, user chose to drop" }
+        ]
+      }
     }
   }
 }
@@ -69,6 +84,17 @@
 | `recorded_at` | 首次写入后永不重置，`restored` 同样保持——保留"最初意图"的凭证 | PDP |
 | `checked_at` | 最近一次核对并写回的时间 | PDP |
 | `removed_at` | 软删除标记；存在即视为已移除 | PDP |
+| `config` | 备份范围判断的存档（见下），**可选字段；缺失 = 尚未讨论过**（区别于 `include:false` 的"明确不备份"） | LLM 与用户对话的结果，`pdp_scope_set` 写入 |
+
+`config`（`Scope`）语义：
+
+- `include`：`true` = 备份 `paths` 中 include 的内容；`false` = 明确不备份，**此时顶层 `reason` 必填且 `paths` 必须为空**——存档存的是决定，不是讨论过程。
+- `decided_at`：判断达成的时间，`SetScope` 成功时由 PDP 写入并刷新。可审查性 = 为什么（`reason`）+ 什么时候（`decided_at`）。
+- `paths[]`：`action` ∈ `include | exclude`；**每条 `reason` 必填**；`exclude` 必须落在某个 `include` 路径之下（洞必须在墙里）；路径必须绝对或以 `~` 开头。
+- 预设的缺席由可审查性补偿：没有内置规则库，安全感来自"每个决定都带理由躺在清单里"。
+- 格式兼容：`config` 为新增可选字段，**`version` 保持 1**。升版本保留给不兼容变更（改名、删字段、改语义），本次不触发；既有清单原地有效。
+
+敏感硬底线（用户可查看、可修改；永不静默进入备份）：`~/.ssh/id_*`、`*.pem`、`~/.netrc`、`~/.pgpass`、`~/.aws/credentials`。它在元数据层生效：`pdp_path_inspect` 对命中的路径标记 `sensitive_floor: true` 并附 warning，不读取内容，不阻止 LLM 表达观点，但备份阶段（阶段三）会物理拒绝把它们无提示带走。
 
 `type` 是**语义分类**，系统无法推导：`devtool` 编辑器与命令行工具、`runtime` 语言工具链、`service` 常驻服务与数据库、`other` 兜底。它决定清单分组，也决定恢复阶段是否需要提示"启用/启动服务"。
 
@@ -117,7 +143,23 @@
 
 - 入参：无
 - 行为：只读本地状态，不碰系统
-- 出参：`revision`、`total`、`by_type{}`、`entries[]`、`removed_count`
+- 出参：`revision`、`total`、`by_type{}`、`entries[]`（含 `config` 存档，未配置时字段缺省）、`removed_count`
+
+### `pdp_path_inspect`（L0，批量，阶段二）
+
+- 入参：`paths[]`（绝对路径或 `~` 开头）、`max_entries?`（条目名采样上限，默认 50）
+- 行为：**只读元数据，永不读文件内容**。存在性、类型、大小、mtime、权限、目录**第一层**条目名采样（不递归；超出给 `truncated: true` 与总数）；symlink 不穿透——报告链接本身与解析目标，不列目标内容；单条路径探查失败计入该条目，不拖垮整批
+- 出参：`entries[]{path, exists, kind, size, mtime, mode, symlink_target, symlink_broken, entries_sample, entries_total, truncated, sensitive_floor, sensitive_entries[], error}`
+- 敏感底线：路径自身命中 → `sensitive_floor: true`；采样中的子文件名命中 → 列入 `sensitive_entries[]`；两者都由信封转成 warning。不读取内容，不阻止表达意见
+- 用途：LLM 验证配置位置推测、判断隐私风险的唯一证据来源
+- 失败：`rejected`（相对路径、空路径，executor 预检）
+
+### `pdp_scope_set`（L1，单个，阶段二）
+
+- 入参：`name`、`scope{include, reason, paths[]{path, action, reason}}`、`base_revision`
+- 行为：`List.SetScope` 纯方法写入；校验：`reason` 逐条必填、`include:false` 时顶层 `reason` 必填且 `paths` 必须为空、`exclude` 必须落在 `include` 之下、路径必须绝对或 `~` 开头；`decided_at` 由 PDP 写入，调用方不填；条目不存在 → `not_found`；条目已软删 → `rejected`（先恢复再谈范围）
+- 出参：`action: set`、包的最新 `config`、`revision`
+- 语义：这是"LLM 与用户对话结果"的存档点——PDP 不判断内容，只存判断
 
 ## 6. 资源
 
@@ -131,7 +173,7 @@ v1 不做资源模板和订阅。
 
 ## 7. 明确不做
 
-通用 shell 执行、任意文件读写、整机软件扫描、备份、恢复、`scope_set`、`path_inspect`、`path_peek`。
+通用 shell 执行、整机软件扫描、备份执行、恢复、**任何读取文件内容的工具**（永久边界，见 §1 硬边界）。
 
 ## 8. 待定
 

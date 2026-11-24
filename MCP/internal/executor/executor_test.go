@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/g726unknown/pdp/internal/observer"
+	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
 )
 
@@ -43,10 +44,11 @@ func pacmanStub(qOut, qErr string, qExit error, mOut string) *stubExec {
 
 // newTestService 返回真 recorder（临时目录）+ 真 observer（挂 stub）。
 // 三层真逻辑的组合，只把最外层的命令执行换成假货。
+// pobs 挂临时 home：本文件的用例不探查路径，inspect 用例见 inspect_test.go。
 func newTestService(t *testing.T, stub *stubExec) (*Service, *recorder.Recorder) {
 	t.Helper()
 	rec := recorder.Open(t.TempDir())
-	return New(observer.New(stub), rec), rec
+	return New(observer.New(stub), rec, pathobserver.New(t.TempDir())), rec
 }
 
 func TestAddPackageInstalled(t *testing.T) {

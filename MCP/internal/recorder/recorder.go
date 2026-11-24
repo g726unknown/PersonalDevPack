@@ -38,6 +38,17 @@ type Package struct {
 	RecordedAt time.Time  `json:"recorded_at"`
 	CheckedAt  time.Time  `json:"checked_at"`
 	RemovedAt  *time.Time `json:"removed_at,omitempty"`
+
+	// Config 存档"备份范围判断"——LLM 与用户对话达成的决定与理由。
+	// PDP 只存不判：这里没有规则引擎，只有可审查的存档。
+	//
+	// nil 与 include:false 是两个不同的状态，Load 永不把 nil 归一化成
+	// 空 Scope（那会让"已拒绝过的建议"重新变成"没讨论过"）：
+	//
+	//   - Config == nil    尚未讨论过——LLM 应当主动提起这个话题；
+	//   - Include == false 已明确决定不备份，顶层 Reason 记录理由——
+	//                      LLM 不应再纠缠，理由就在旁边。
+	Config *Scope `json:"config,omitempty"`
 }
 
 // Recorder 持有清单所在的状态目录。
@@ -63,6 +74,11 @@ func Open(dir string) *Recorder {
 //
 // Load 返回的 List.Packages 永远非 nil：合法 JSON 缺 packages 键时
 // 在此归一化为空 map，调用方不必记例外。
+//
+// Load 不做 Config（Scope）的业务校验——文件可能被手动编辑，
+// 读路径拒绝手改等于没收用户自救的最后通道。格式合法即接受；
+// 结构校验是 SetScope 的职责，备份阶段执行前会自行再验。
+// 同理，Config 保持文件里的原样：nil 就是 nil，不归一化。
 //
 // ctx 目前不参与读取（单文件读快到无需取消），仅为将来保留接口形状。
 func (r *Recorder) Load(ctx context.Context) (*List, error) {

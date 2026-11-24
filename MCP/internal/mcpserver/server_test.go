@@ -16,6 +16,7 @@ import (
 
 	"github.com/g726unknown/pdp/internal/executor"
 	"github.com/g726unknown/pdp/internal/observer"
+	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
 )
 
@@ -103,13 +104,13 @@ func seedVersion(t *testing.T, rec *recorder.Recorder, name, version, typ, sourc
 	}
 }
 
-// newSessionWith 起一台挂好全部工具的 in-memory MCP server 并接上客户端；
-// 命令执行由各测试注入（guardExec 或应答脚本）。
-func newSessionWith(t *testing.T, exec observer.Execer) (*mcp.ClientSession, *recorder.Recorder, string) {
+// newSessionWithHome 是 newSessionWith 的 home 注入版：
+// path_inspect 用例要在探查对象的 home 里建真实文件。
+func newSessionWithHome(t *testing.T, exec observer.Execer, home string) (*mcp.ClientSession, *recorder.Recorder, string) {
 	t.Helper()
 	dir := t.TempDir()
 	rec := recorder.Open(dir)
-	svc := executor.New(observer.New(exec), rec)
+	svc := executor.New(observer.New(exec), rec, pathobserver.New(home))
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "pdp-test", Version: "0"}, nil)
 	Register(srv, svc, Config{StateDir: dir})
@@ -124,6 +125,13 @@ func newSessionWith(t *testing.T, exec observer.Execer) (*mcp.ClientSession, *re
 	}
 	t.Cleanup(func() { cs.Close() })
 	return cs, rec, dir
+}
+
+// newSessionWith 起一台挂好全部工具的 in-memory MCP server 并接上客户端；
+// 命令执行由各测试注入（guardExec 或应答脚本）。
+func newSessionWith(t *testing.T, exec observer.Execer) (*mcp.ClientSession, *recorder.Recorder, string) {
+	t.Helper()
+	return newSessionWithHome(t, exec, t.TempDir())
 }
 
 // newSession 用 guardExec 起会话，供纯读工具的用例。
@@ -165,7 +173,7 @@ func TestListToolsOrder(t *testing.T) {
 	// 是“每次列出相同”，不是“按注册序”。
 	want := []string{
 		"pdp_list_add", "pdp_list_check", "pdp_list_remove", "pdp_list_show",
-		"pdp_package_query", "pdp_system_info",
+		"pdp_package_query", "pdp_path_inspect", "pdp_scope_set", "pdp_system_info",
 	}
 	if len(res.Tools) != len(want) {
 		t.Fatalf("len(Tools) = %d, want %d", len(res.Tools), len(want))
@@ -177,11 +185,15 @@ func TestListToolsOrder(t *testing.T) {
 	}
 
 	// 关键 annotations：读工具 ReadOnlyHint，写工具 IdempotentHint。
+	// pdp_scope_set 两边都不占：重调刷新 decided_at，是覆盖写不是幂等。
 	byName := map[string]*mcp.Tool{}
 	for _, tool := range res.Tools {
 		byName[tool.Name] = tool
 	}
-	for _, name := range []string{"pdp_system_info", "pdp_package_query", "pdp_list_check", "pdp_list_show"} {
+	for _, name := range []string{
+		"pdp_system_info", "pdp_package_query", "pdp_path_inspect",
+		"pdp_list_check", "pdp_list_show",
+	} {
 		if a := byName[name].Annotations; a == nil || !a.ReadOnlyHint {
 			t.Errorf("%s Annotations.ReadOnlyHint = false/nil, want true", name)
 		}
@@ -200,8 +212,8 @@ func TestEnvelopeFlattenedOnAllTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools() error = %v", err)
 	}
-	if len(res.Tools) != 6 {
-		t.Fatalf("len(Tools) = %d, want 6", len(res.Tools))
+	if len(res.Tools) != 8 {
+		t.Fatalf("len(Tools) = %d, want 8", len(res.Tools))
 	}
 	for _, tool := range res.Tools {
 		if tool.Description == "" {
@@ -543,8 +555,8 @@ func TestShowEmptyList(t *testing.T) {
 	if out.Status != StatusOK {
 		t.Errorf("Status = %q, want %q", out.Status, StatusOK)
 	}
-	if out.Summary == "" {
-		t.Error("Summary = empty, want non-empty")
+	if out.Summary != "inventory: 0 active, 0 removed" {
+		t.Errorf("Summary = %q, want 新措辞（数字前移绕开单复数）", out.Summary)
 	}
 	if out.Revision != 0 || out.Total != 0 || out.RemovedCount != 0 {
 		t.Errorf("Revision=%d Total=%d RemovedCount=%d, want 0/0/0", out.Revision, out.Total, out.RemovedCount)
@@ -608,6 +620,9 @@ func TestShowSeededEntries(t *testing.T) {
 	if out.ByType[recorder.TypeDevTool] != 2 || out.ByType[recorder.TypeRuntime] != 1 {
 		t.Errorf("ByType = %v, want devtool:2 runtime:1", out.ByType)
 	}
+	if out.Summary != "inventory: 3 active, 0 removed" {
+		t.Errorf("Summary = %q, want 新措辞", out.Summary)
+	}
 }
 
 func TestShowSkipsRemovedEntry(t *testing.T) {
@@ -638,6 +653,10 @@ func TestShowSkipsRemovedEntry(t *testing.T) {
 	}
 	if _, ok := out.ByType[recorder.TypeOther]; ok {
 		t.Errorf("removed entry's type leaked into ByType: %v", out.ByType)
+	}
+	// 单数场景正是旧措辞（"1 packages recorded"）翻车的地方。
+	if out.Summary != "inventory: 1 active, 1 removed" {
+		t.Errorf("Summary = %q, want 单数也不翻车的新措辞", out.Summary)
 	}
 }
 

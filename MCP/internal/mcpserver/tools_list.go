@@ -55,12 +55,13 @@ type listShowIn struct{}
 // listShowEntry 是条目的线上形态；时间字段由 encoding/json
 // 自动输出 RFC3339。
 type listShowEntry struct {
-	Name       string    `json:"name"`
-	Source     string    `json:"source"`
-	Version    string    `json:"version"`
-	Type       string    `json:"type"`
-	RecordedAt time.Time `json:"recorded_at"`
-	CheckedAt  time.Time `json:"checked_at"`
+	Name       string          `json:"name"`
+	Source     string          `json:"source"`
+	Version    string          `json:"version"`
+	Type       string          `json:"type"`
+	RecordedAt time.Time       `json:"recorded_at"`
+	CheckedAt  time.Time       `json:"checked_at"`
+	Config     *recorder.Scope `json:"config,omitempty"` // nil = 尚未讨论过
 }
 
 // listShowOut 是 pdp_list_show 的输出：信封平铺 + 业务字段。
@@ -98,10 +99,13 @@ func (a *api) listShow(ctx context.Context, _ *mcp.CallToolRequest, _ listShowIn
 			Type:       e.Type,
 			RecordedAt: e.RecordedAt,
 			CheckedAt:  e.CheckedAt,
+			Config:     e.Config,
 		})
 	}
 	out.Status = StatusOK
-	out.Summary = fmt.Sprintf("%d packages recorded, %d removed", res.Total, res.RemovedCount)
+	// 数字前移绕开单复数（瑕疵清单第一条）：英文单复数在 1 上翻车，
+	// "inventory: N active" 对任何 N 都不翻车。
+	out.Summary = fmt.Sprintf("inventory: %d active, %d removed", res.Total, res.RemovedCount)
 	return nil, out, nil
 }
 
