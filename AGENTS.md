@@ -11,11 +11,11 @@ PDP 不是传统包管理器的替代品，也不是完整的系统备份工具�
 ## 当前项目状态
 
 - Go 模块已建立：代码在 `MCP/`（module `github.com/g726unknown/pdp`，Go 1.27），MCP SDK 用官方 `github.com/modelcontextprotocol/go-sdk` v1.8.0，stdio 传输。
-- 阶段一（软件清单）已交付并通过真实 agent 会话验收：六工具（`system_info` / `package_query` / `list_add` / `list_remove` / `list_check` / `list_show`）+ 三只读资源；清单落盘为 `PDP_HOME/list.json`（默认 `~/.local/share/pdp/`）。
-- 代码分层：`cmd/pdp`（装配）→ `internal/mcpserver`（MCP 外壳）→ `internal/executor`（用例编排）→ `internal/observer`（只读事实）+ `internal/recorder`（清单权威）。
-- 构建与测试命令：`go build ./...`、`go vet ./...`、`go test ./...`（配合 `-count=1` 绕缓存）。
-- 子项目约定、进度、真机探针命令见 `MCP/AGENTS.md`；MCP 契约（工具、字段、语义）见 `MCP/DESIGN.md`，契约变更先改文档再改代码。
-- 尚未实现：配置范围确认、备份与同步、恢复流程；其格式与内部接口未确定，不得假设；AUR、Flatpak、apt/dnf 等支持仍未开始。
+- **MVP 全部交付并通过真实使用验收（2026-11-26）**：阶段一（软件清单）、二（配置范围判断，reason 存档）、三（单快照备份）、四（恢复——改道为 guide 流程 + 宿主 shell 执行，不建 PDP 恢复工具）。九工具 + 四资源，174 个测试；边界（内容不进模型上下文、永不写机器侧、先报告再决断）全部在真机数据上兑现。
+- 代码分层：`cmd/pdp`（装配）→ `internal/mcpserver`（MCP 外壳）→ `internal/executor`（用例编排）→ `internal/observer`（命令事实）+ `internal/pathobserver`（路径元数据）+ `internal/recorder`（清单权威）+ `internal/snapper`（快照引擎，唯一可写用户文件复制的包）。
+- 构建与测试命令：`cd MCP && go build ./...`、`go vet ./...`、`go test ./... -count=1`。
+- 子项目约定、进度、真机探针命令见 `MCP/AGENTS.md`；MCP 契约见 `MCP/DESIGN.md`，契约变更先改文档再改代码。
+- 下一步由真实使用的摩擦决定：`pdp_package_query` 扩展（`-Si`/`-Qo`）、`pdp_restore_*`（若宿主 shell 恢复摩擦大）、订阅等均为待定，不预造。
 
 ## 已确定的产品约束
 

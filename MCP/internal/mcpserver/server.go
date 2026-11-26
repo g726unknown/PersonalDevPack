@@ -34,5 +34,6 @@ func Register(s *mcp.Server, svc *executor.Service, cfg Config) {
 	a.registerPackageTools(s)
 	a.registerListTools(s)
 	a.registerScopeTools(s)
+	a.registerBackupTools(s)
 	a.registerResources(s)
 }

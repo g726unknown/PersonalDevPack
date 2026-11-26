@@ -18,18 +18,21 @@ import (
 	"github.com/g726unknown/pdp/internal/observer"
 	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
 const version = "0.1.0-dev"
 
 // instructions 是 initialize 握手时给客户端的服务说明（DESIGN §1 的口径）。
 // 只描述已实现的能力——没上线的承诺写进这里就是撒谎。
-const instructions = `PDP maintains the software inventory of this Linux machine (list.json): record which packages to keep, check the list against the system, inspect filesystem metadata, and archive backup-scope decisions.
+const instructions = `PDP maintains the software inventory of this Linux machine (list.json): record which packages to keep, check the list against the system, inspect filesystem metadata, archive backup-scope decisions, and snapshot the archived scope.
 Write operations (pdp_list_add, pdp_list_remove, pdp_scope_set) only modify PDP's own list.json; tell the user what will be written before calling them. PDP never installs, uninstalls, or upgrades anything on the system.
 pdp_path_inspect is the evidence channel for backup-scope research: metadata only, never file contents — prefer it over your own shell/read so secrets stay out of the model context.
 pdp_scope_set archives the backup-scope decision you reached with the user; every path needs a reason, and decided_at is stamped automatically.
 Decide alone vs. ask by reversibility: entries are reversible and every judgment is archived with a reason, so routine calls (standard config paths like ~/.config/<pkg>, classifications) you may decide and report; ask before archiving anything that touches privacy (exclusions, include=false) or when intent is unclear. When the user asks to back up a package, raise the config-scope question yourself in the same conversation (path_inspect → propose → scope_set) instead of waiting to be asked.
-Backup execution and restoration are NOT implemented — only scope decisions are archived; do not claim backup/restore capabilities.
+Backup execution IS implemented: pdp_backup_sync snapshots the archived scope into PDP_HOME/backups (single snapshot replacing the previous; dry_run previews). Sync direction is fixed: machine → backup, the machine side is never written. On new scope, prefer a dry_run before the first real sync.
+Restoration is NOT a PDP tool: execute it yourself via the host shell following pdp://guide (install missing pacman packages, cp -a the snapshot back, verify with the manifest's sha256). Check conflicts before overwriting, confirm with the user, and report deviations honestly.
+For any question about the list, drift, or backup state, use PDP's tools first (pdp_list_check, pdp_backup_sync dry_run) — they are the authoritative channels; do not reconstruct state from raw files with your own shell.
 Read resources pdp://guide for the standard flow and pdp://state/inventory for the raw list.`
 
 // stateDir 解析状态目录：
@@ -75,8 +78,10 @@ func run(getenv func(string) string, logger *slog.Logger) error {
 
 	rec := recorder.Open(dir)
 	// home 与 stateDir 同一注入哲学：装配点读环境、注入各层。
-	// HOME 缺席时 ~ 探查按条目报错，不影响其他能力。
-	svc := executor.New(observer.New(observer.OSExecer{}), rec, pathobserver.New(getenv("HOME")))
+	// HOME 缺席时 ~ 路径按条目报错，不影响其他能力。
+	home := getenv("HOME")
+	snap := snapper.New(filepath.Join(dir, "backups"), home)
+	svc := executor.New(observer.New(observer.OSExecer{}), rec, pathobserver.New(home), snap, home)
 	srv := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "pdp",

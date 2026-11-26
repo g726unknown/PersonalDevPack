@@ -10,6 +10,7 @@ import (
 	"github.com/g726unknown/pdp/internal/observer"
 	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
 // 本文件的用例一路真到底：真 pathobserver + 临时目录 home，
@@ -19,7 +20,7 @@ func newInspectService(t *testing.T) (*Service, string) {
 	t.Helper()
 	home := t.TempDir()
 	rec := recorder.Open(t.TempDir())
-	svc := New(observer.New(pacmanStub("", "", nil, "")), rec, pathobserver.New(home))
+	svc := New(observer.New(pacmanStub("", "", nil, "")), rec, pathobserver.New(home), snapper.New(t.TempDir(), home), home)
 	return svc, home
 }
 

@@ -34,7 +34,7 @@ func (a *api) registerListTools(s *mcp.Server) {
 	mcp.AddTool(s,
 		&mcp.Tool{
 			Name:        "pdp_list_check",
-			Description: "Compare the PDP list against the local system for every non-removed entry. Read-only, reports facts only (recorded vs actual version and source); it does not judge whether a difference is drift — you decide with context. Skips soft-removed entries.",
+			Description: "Compare the PDP list against the local system for every non-removed entry. Read-only, reports facts only (recorded vs actual version and source); it does not judge whether a difference is drift — you decide with context. Skips soft-removed entries. Use this for \"is my list up to date?\" questions.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		},
 		a.listCheck,

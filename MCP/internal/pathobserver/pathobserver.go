@@ -143,7 +143,7 @@ func (p *Prober) probeOne(in Input) Facts {
 	// 先落局部变量再取地址：函数返回值不可寻址，&fi.ModTime() 编译不过。
 	mtime := fi.ModTime()
 	f.MTime = &mtime
-	f.SensitiveFloor = p.matchFloor(expanded)
+	f.SensitiveFloor = MatchFloor(expanded, p.home)
 
 	switch {
 	case fi.Mode()&os.ModeSymlink != 0:
@@ -188,7 +188,7 @@ func (p *Prober) probeOne(in Input) Facts {
 			}
 			// 只取 Name()——白名单规则。
 			f.EntriesSample = append(f.EntriesSample, e.Name())
-			if p.matchFloor(filepath.Join(expanded, e.Name())) {
+			if MatchFloor(filepath.Join(expanded, e.Name()), p.home) {
 				f.SensitiveEntries = append(f.SensitiveEntries, e.Name())
 			}
 		}
@@ -218,35 +218,44 @@ func (p *Prober) expand(path string) (string, error) {
 	return "", fmt.Errorf("pathobserver: relative path %q requires an absolute or ~/ prefix", path)
 }
 
-// matchFloor 报告展开后的完整路径是否命中敏感底线。
-// 豁免（NotSuffix）在命中之后、返回之前检查——命中但被豁免的路径
-// 当作没碰到底线，继续走下一条 pattern（豁免不是拒绝，是放行）。
-// pattern 的 ~ 每次就地展开：五条 × 每条目几次的字符串操作，
-// 相比 Lstat 的系统调用延迟可以忽略，不值得缓存。
-func (p *Prober) matchFloor(expanded string) bool {
+// MatchFloor 报告绝对路径 absPath 是否命中敏感底线。
+// absPath 须为展开后的绝对路径（~ 已解析）；home 用于展开
+// 底线 pattern 里的 ~ 前缀。
+//
+// 包内 Prober 与阶段三的 backup 引擎共用这一份判定——
+// 底线只有一份词表、一个判定者。
+func MatchFloor(absPath, home string) bool {
 	for _, pat := range Floor {
 		var hit bool
 		switch {
 		case pat.Glob != "":
-			g, err := p.expand(pat.Glob)
-			if err != nil {
-				continue // 底线自身有病不拖垮探查；实际不会发生
-			}
-			if ok, err := filepath.Match(g, expanded); err == nil && ok {
+			if ok, err := filepath.Match(expandPattern(pat.Glob, home), absPath); err == nil && ok {
 				hit = true
 			}
 		case pat.Suffix != "":
-			if strings.HasSuffix(filepath.Base(expanded), pat.Suffix) {
+			if strings.HasSuffix(filepath.Base(absPath), pat.Suffix) {
 				hit = true
 			}
 		}
 		if !hit {
 			continue
 		}
-		if pat.NotSuffix != "" && strings.HasSuffix(filepath.Base(expanded), pat.NotSuffix) {
+		if pat.NotSuffix != "" && strings.HasSuffix(filepath.Base(absPath), pat.NotSuffix) {
 			continue // 豁免：拦 X，放 X.pub——公钥不是秘密
 		}
 		return true
 	}
 	return false
+}
+
+// expandPattern 把底线 pattern 的 ~ 前缀按 home 展开。
+// Floor 是包级常量，形态永远合法，不需要错误路径。
+func expandPattern(pattern, home string) string {
+	switch {
+	case pattern == "~":
+		return home
+	case strings.HasPrefix(pattern, "~/"):
+		return filepath.Join(home, pattern[2:])
+	}
+	return pattern
 }

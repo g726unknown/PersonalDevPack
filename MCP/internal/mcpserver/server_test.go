@@ -18,6 +18,7 @@ import (
 	"github.com/g726unknown/pdp/internal/observer"
 	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
 // guardExec 不是第三份 stub，是负向断言：纯读工具不该发起任何探查，
@@ -110,7 +111,7 @@ func newSessionWithHome(t *testing.T, exec observer.Execer, home string) (*mcp.C
 	t.Helper()
 	dir := t.TempDir()
 	rec := recorder.Open(dir)
-	svc := executor.New(observer.New(exec), rec, pathobserver.New(home))
+	svc := executor.New(observer.New(exec), rec, pathobserver.New(home), snapper.New(t.TempDir(), home), home)
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "pdp-test", Version: "0"}, nil)
 	Register(srv, svc, Config{StateDir: dir})
@@ -172,6 +173,7 @@ func TestListToolsOrder(t *testing.T) {
 	// tools/list）。字母序同样是确定性顺序——客户端缓存的依据
 	// 是“每次列出相同”，不是“按注册序”。
 	want := []string{
+		"pdp_backup_sync",
 		"pdp_list_add", "pdp_list_check", "pdp_list_remove", "pdp_list_show",
 		"pdp_package_query", "pdp_path_inspect", "pdp_scope_set", "pdp_system_info",
 	}
@@ -212,8 +214,8 @@ func TestEnvelopeFlattenedOnAllTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools() error = %v", err)
 	}
-	if len(res.Tools) != 8 {
-		t.Fatalf("len(Tools) = %d, want 8", len(res.Tools))
+	if len(res.Tools) != 9 {
+		t.Fatalf("len(Tools) = %d, want 9", len(res.Tools))
 	}
 	for _, tool := range res.Tools {
 		if tool.Description == "" {

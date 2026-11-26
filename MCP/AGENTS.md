@@ -52,12 +52,20 @@
 
 阶段二拍板（2026-11-24）：备份范围判断全交 LLM（reason 必填存档）；**文件内容永不进模型上下文**；敏感硬底线极小集（可查看可修改）；`config` 为可选字段、`version` 保持 1。
 
+阶段三拍板（2026-11-24，同日修订）：**单快照**——每次成功 sync 顶掉上一份（快照是存档判断的投影，不是历史账本）；底线**先报告再决断**——底线文件照常复制（不先决断跳过），非显式条目的命中在 `floor_included[]` 点名，保留或 exclude 后再 sync 由 LLM/用户定；`pdp_backup_sync`（含 dry_run）+ 资源 `pdp://backup/manifest`；symlink 按链接复制、目标内容须显式入 scope。统一原则：**备份忠实执行存档；存档没说清的，报告而不猜测；"确认"永远等于存档里的一个显式条目（带 reason）。**
+
+- [x] 快照引擎（卡 #15 完成，2026-11-24，17 测试 + pathobserver `MatchFloor` 导出；单快照拍板采纳；五处执行语义自定全采纳——含墙重叠去重与深墙先走，"顺序依赖的语义都是坏语义"；包名 snapper：建议 archiver，用户知情保留并留消歧注释）
+- [x] executor 接线 + `pdp_backup_sync` + 资源 manifest + 文案校准（卡 #16 **完成**，2026-11-26 收卡——首次真 sync 经协议层执行于真实数据：快照 20261126T081943Z 落盘，manifest 的 sha256 与源文件独立核算逐字一致；wechat 的 NoScopeYet 提醒在真机点亮）
+- [x] 恢复改道：guide 恢复节 + instructions 三次校准 + 便携性测试（卡 #17 单测完成，2026-11-26，172 测试；"guide 告诉用户的那条命令真的能用"由 TestPDPHomePortable 钉死）
+- [x] **恢复演练完成**（2026-11-26 收官）：真实会话通过；落盘侧核实——单快照替换在真机成立、ghostty 配置哈希与快照一致、fish 作为真实使用新增范围并如实投影（`explicit:false` 语义在真机数据兑现）。**至此 `personaldev.md` MVP 验收全部点亮**（2026-11-26）。
+- [x] 能力可见性：README 重写 + guide 能力地图 + instructions 一句（卡 #18 **完成**，2026-11-26 行为验证一次通过：无提示直问"备份有变化吗"→ dry_run 权威通道 + wechat 主动提议定范围 + revision 6 vs 5 的审计级解释；README 构建命令实测坏已修，教训"文档命令验证靠执行"）
+
 - [x] `internal/recorder`：`Scope` 结构 + `SetScope` 纯方法（卡 #11 完成，2026-11-24，recorder 38 测试；`include:false+paths` 拒绝、防御性拷贝采纳；decided_at 待补丁 #11b）
 - [x] `internal/recorder`：`Scope.DecidedAt` + `include:false` 空路径校验补全（补丁卡 #11b 完成，2026-11-24，recorder 39 测试全过）
 - [x] `internal/pathprobe` → `internal/pathobserver`：元数据探查 + 敏感底线标记（卡 #12 完成，2026-11-24，13 测试 + 真机探针；含包改名采纳、公钥误拦裁定见 #12b）
 - [x] `internal/pathobserver`：敏感底线排除 `.pub` + `MTime` 指针化（补丁卡 #12b 完成，2026-11-24，17 测试 + 真机复探收敛为 [id_ed25519]）
 - [x] `internal/executor`：`InspectPaths` / `SetScope` 接线（卡 #13 完成，2026-11-24，executor 33 测试；`ErrInvalidScope` 哨兵、SetScope guardExec 负向断言、"断言钉行为不钉措辞"经验）
-- [ ] `internal/mcpserver`：`pdp_path_inspect` / `pdp_scope_set` 上架 + 文案 + 真机 e2e（卡 #14：单测 30 + 协议探针通过，2026-11-24；executor 按用例拆分文件采纳；**待真实 agent 会话（ghostty 时刻）报备后收卡**）
+- [x] `internal/mcpserver`：`pdp_path_inspect` / `pdp_scope_set` 上架 + 文案 + 真机 e2e（卡 #14 **完成**，2026-11-26 收卡——真实数据为证：ghostty 的 scope 于 11-24 由真实 agent 会话落档、带中文 reason 与 decided_at；随后经协议层回读核实）
 - [x] `internal/mcpserver`：自主/询问分界引导（补丁卡 #14b 完成，2026-11-24，instructions 两句 + guide 中文增节；安装位制品经协议探针核实）
 
 ## 构建与验证
@@ -115,10 +123,9 @@ M='{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextproto
 
 ### 后续阶段
 
-- 阶段二（进行中）：`recorder` 的 `Scope` 存档与校验 → `pathobserver`（元数据 + 敏感底线标记）→ `executor` 的 `InspectPaths` / `SetScope` → `pdp_path_inspect` / `pdp_scope_set`
+- 阶段三（进行中）：`internal/snapper` 快照引擎（唯一可 `Open`/`WriteFile` 用户文件的包）→ `pdp_backup_sync`（含 dry_run）+ 资源 `pdp://backup/manifest`。拍板（2026-11-24，同日修订）：**单快照**，每次 sync 顶掉上一份（快照是投影不是账本）；底线**先报告再决断**（照常复制 + `floor_included[]` 点名，处置交 LLM/用户）；symlink 按链接复制，目标内容须显式入 scope
 - `pdp_package_query` 扩展查询（`pacman -Si` / `-Qo`）
-- 备份与同步（哈希 diff、原子快照、`dry_run`、失败不破坏已有数据；敏感底线物理生效）
-- 恢复（`plan_id` 两段式、dry-run、冲突检测、手工事项上报）
+- **恢复（改道，2026-11-24）**：不建 PDP 恢复工具——guide 文档化标准流程，执行交给 agent 宿主 shell，宿主审批 UI 充当确认层；PDP 保证 `PDP_HOME` 便携（`~` 路径随用户名，注意事项入 guide）+ 只读工具支持；真实恢复摩擦大则评估补建 `pdp_restore_*`（门不焊死）
 
 ### 已知小瑕疵（不阻塞，随手可修）
 

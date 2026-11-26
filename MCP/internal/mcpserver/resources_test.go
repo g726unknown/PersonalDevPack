@@ -22,6 +22,7 @@ func TestListResources(t *testing.T) {
 	want := map[string]bool{
 		"pdp://state/inventory": false,
 		"pdp://system/profile":  false,
+		"pdp://backup/manifest": false,
 		"pdp://guide":           false,
 	}
 	if len(res.Resources) != len(want) {
@@ -155,6 +156,43 @@ func TestReadGuide(t *testing.T) {
 	}
 }
 
+// 卡 #17：恢复节的关键字级断言——cp -a 回放、sha256 验证、
+// 冲突不静默覆盖，恢复改道写死的流程三要素。
+func TestReadGuideRestore(t *testing.T) {
+	cs, _, _ := newSession(t)
+
+	res, err := cs.ReadResource(t.Context(), &mcp.ReadResourceParams{URI: "pdp://guide"})
+	if err != nil {
+		t.Fatalf("ReadResource() error = %v", err)
+	}
+	c := res.Contents[0]
+	for _, kw := range []string{"在新系统恢复", "cp -a", "sha256", "不静默覆盖"} {
+		if !strings.Contains(c.Text, kw) {
+			t.Errorf("guide text 缺少恢复节关键字 %q", kw)
+		}
+	}
+	if strings.Contains(c.Text, "恢复尚未实现") {
+		t.Error("guide text 仍含过时的“恢复尚未实现”——改道后恢复是文档化流程")
+	}
+}
+
+// 卡 #18：能力地图节的关键字级断言——摩擦的直接回应
+// （模型默认先用自己的工具）：问题→工具映射 + 权威通道原则在场。
+func TestReadGuideCapabilityMap(t *testing.T) {
+	cs, _, _ := newSession(t)
+
+	res, err := cs.ReadResource(t.Context(), &mcp.ReadResourceParams{URI: "pdp://guide"})
+	if err != nil {
+		t.Fatalf("ReadResource() error = %v", err)
+	}
+	c := res.Contents[0]
+	for _, kw := range []string{"能力地图", "权威通道", "pdp_list_check", "pdp://backup/manifest"} {
+		if !strings.Contains(c.Text, kw) {
+			t.Errorf("guide text 缺少能力地图关键字 %q", kw)
+		}
+	}
+}
+
 func TestToolsUnchangedByResourceRegistration(t *testing.T) {
 	// 注册重构后工具不丢：resources 挂上不影响 tools/list。
 	cs, _, _ := newSession(t)
@@ -163,8 +201,8 @@ func TestToolsUnchangedByResourceRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools() error = %v", err)
 	}
-	if len(res.Tools) != 8 {
-		t.Errorf("len(Tools) = %d, want 8 (资源注册不得丢工具)", len(res.Tools))
+	if len(res.Tools) != 9 {
+		t.Errorf("len(Tools) = %d, want 9 (资源注册不得丢工具)", len(res.Tools))
 	}
 }
 

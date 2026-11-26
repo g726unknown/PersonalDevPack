@@ -12,7 +12,9 @@
 
 边界属于 PDP 自己的通道：PDP 的任何工具、日志与存档永不携带文件内容；宿主 agent 自带能力（shell、文件读取）不受此约束——PDP 不承诺阻止模型经宿主工具接触内容，只承诺自己永不主动暴露。
 
-包含 8 个工具（6 旧 + `pdp_path_inspect`、`pdp_scope_set`），不做备份执行和恢复。
+第三版追加：**把存档的判断变成真备份**——时间戳快照、哈希 diff、单向同步、失败不伤旧账（阶段三）。
+
+包含 9 个工具（8 旧 + `pdp_backup_sync`）与 4 份资源（增 `pdp://backup/manifest`）；**恢复不以工具形态提供**（改道决策，见 §7）。
 
 ## 2. 协议与身份
 
@@ -94,7 +96,7 @@
 - 预设的缺席由可审查性补偿：没有内置规则库，安全感来自"每个决定都带理由躺在清单里"。
 - 格式兼容：`config` 为新增可选字段，**`version` 保持 1**。升版本保留给不兼容变更（改名、删字段、改语义），本次不触发；既有清单原地有效。
 
-敏感硬底线（用户可查看、可修改；永不静默进入备份）：`~/.ssh/id_*`、`*.pem`、`~/.netrc`、`~/.pgpass`、`~/.aws/credentials`。它在元数据层生效：`pdp_path_inspect` 对命中的路径标记 `sensitive_floor: true` 并附 warning，不读取内容，不阻止 LLM 表达观点，但备份阶段（阶段三）会物理拒绝把它们无提示带走。
+敏感硬底线（用户可查看、可修改；永不静默进入备份）：`~/.ssh/id_*`、`*.pem`、`~/.netrc`、`~/.pgpass`、`~/.aws/credentials`。它在**对话层生效，不在执行层拒绝**：`pdp_path_inspect` 标记命中（`sensitive_floor: true` + warning），不读取内容，不阻止 LLM 表达观点；备份**不做任何过滤决断**，忠实执行存档范围；底线文件照常复制，但非显式条目的命中在 `pdp_backup_sync` 结果的 `floor_included[]` 里**点名**——先报告、再决断：保留即视为接受，或 `scope_set` 补一条 exclude 后下次 sync 将其移除。已知代价如实记录在案：处置前该文件会留在本地快照（最多存活到第 2 次轮转），备份目录在用户自己的 `$PDP_HOME` 下、不出本机。"永不静默"细化为"**永不无报告**"：报告骑在结果里，决断权在 LLM 与用户。
 
 `type` 是**语义分类**，系统无法推导：`devtool` 编辑器与命令行工具、`runtime` 语言工具链、`service` 常驻服务与数据库、`other` 兜底。它决定清单分组，也决定恢复阶段是否需要提示"启用/启动服务"。
 
@@ -161,22 +163,34 @@
 - 出参：`action: set`、包的最新 `config`、`revision`
 - 语义：这是"LLM 与用户对话结果"的存档点——PDP 不判断内容，只存判断
 
+### `pdp_backup_sync`（L1，阶段三）
+
+- 入参：`dry_run`（默认 `false`；`true` 只展示将发生的 diff，不写任何文件）
+- 行为：读取清单中全部 `config.include:true` 条目 → 墙内减洞 → 复制到 `PDP_HOME/backups/<UTC 时间戳>/`；快照**完整构建成功后**才替换旧快照（单快照：每次成功 sync 顶掉上一份——快照是存档判断的投影，不是历史账本；要历史让 LLM 维护多份清单或多 `PDP_HOME`），失败或中断丢弃整个新目录、现有快照不受影响
+- `manifest.json`：人可读 JSON——每个文件的路径、SHA-256、大小、mtime、symlink 目标，以及来源清单的 `revision`
+- diff：机器 ↔ 上一次快照逐文件比对，区分 added / modified / deleted
+- symlink：按链接本身复制（存目标字符串，永不跟随目标内容）；目标内容若也要备份，目标路径须在 scope 里显式 include（正常流程，先 `pdp_path_inspect`）
+- 底线文件：见 §4——**照常复制、不先决断**；非显式条目的命中进 `floor_included[]` 点名报告，保留或 exclude 后再 sync 由 LLM/用户定
+- 出参：`snapshot_id`（dry_run 为空）、`diff{added, modified, deleted}`、`floor_included[]`（本次复制的、非显式条目的底线命中）、`skipped_error[]`（读不了的文件如实点名；非空时信封 `status` 为 `partial`——有想做的没做完）、`warnings` / `manual_steps`
+- 范围外提示：清单里 `config` 为 nil（从未讨论过）的未移除条目不进备份，逐个给 warning 提醒 LLM 主动提起；`include:false` 是明确决定，不打扰
+- 同步方向永久固定：机器 → 备份；PDP 永不写机器侧
+
 ## 6. 资源
 
 | URI | 内容 | 兜底工具 |
 |---|---|---|
 | `pdp://state/inventory` | 清单全量 JSON | `pdp_list_show` |
 | `pdp://system/profile` | 系统概览 | `pdp_system_info` |
+| `pdp://backup/manifest` | 当前快照的 manifest JSON | 无（diff 走 `pdp_backup_sync` 的 dry_run） |
 | `pdp://guide` | 简短使用说明 | 无 |
 
 v1 不做资源模板和订阅。
 
 ## 7. 明确不做
 
-通用 shell 执行、整机软件扫描、备份执行、恢复、**任何读取文件内容的工具**（永久边界，见 §1 硬边界）。
+通用 shell 执行、整机软件扫描、**恢复工具**（改道决策 2026-11-24：恢复流程由 guide 文档化，执行交给 agent 的宿主 shell——`cp`/`pacman -S` 走宿主字节管道、内容不进上下文，宿主的命令审批 UI 就是 L2 确认层；PDP 提供便携真相源与只读工具。若真实恢复摩擦大，`pdp_restore_*` 可补建，门不焊死）、**任何把文件内容送进模型上下文的工具**（永久边界，见 §1 硬边界；备份复制是程序字节管道——路径与哈希进上下文，内容不进）。
 
 ## 8. 待定
 
 - `capabilities` 中 `logging:{}` 能否关闭。
 - pacman 不可用的机器上 `list_add` / `list_check` 的行为（v1 假定目标环境有 pacman，探查失败如实报错）。
-- 备份目录结构与历史保留策略。

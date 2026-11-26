@@ -10,6 +10,7 @@ import (
 	"github.com/g726unknown/pdp/internal/observer"
 	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
 // guardExec 是负向断言：SetScope 不探查——谁敢碰命令就当场失败，
@@ -23,7 +24,7 @@ func (guardExec) Run(context.Context, string, ...string) ([]byte, []byte, error)
 func newScopeService(t *testing.T) (*Service, *recorder.Recorder) {
 	t.Helper()
 	rec := recorder.Open(t.TempDir())
-	svc := New(observer.New(guardExec{}), rec, pathobserver.New(t.TempDir()))
+	svc := New(observer.New(guardExec{}), rec, pathobserver.New(t.TempDir()), snapper.New(t.TempDir(), t.TempDir()), t.TempDir())
 	return svc, rec
 }
 

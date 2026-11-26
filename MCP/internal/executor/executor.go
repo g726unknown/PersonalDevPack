@@ -20,6 +20,7 @@ import (
 	"github.com/g726unknown/pdp/internal/observer"
 	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
 // ErrInvalidInput 表示调用参数不合法（空名、非法 type、名单含空串），
@@ -39,25 +40,27 @@ const (
 	SourceUnknown = "unknown"
 )
 
-// Service 组合观察者、记录者与路径观察者，实现用例层。
+// Service 组合观察者、记录者、路径观察者与快照引擎，实现用例层。
 //
-// 依赖具体类型而非接口：observer / recorder / pathobserver 各自已有
-// 成熟的替身（stubExec / 临时目录 / 临时 home），executor 测试直接
-// 复用它们，等于免费获得三层真逻辑的集成测试；再造一层接口假货，
-// 业务规则的测试就退化成“两个手写假货互相对表”——断言的全是
-// 自己写下的预期，不是系统行为。
+// 依赖具体类型而非接口：observer / recorder / pathobserver / snapper
+// 各自已有成熟的替身（stubExec / 临时目录 / 临时 home / 临时 backups
+// root），executor 测试直接复用它们，等于免费获得多层真逻辑的
+// 集成测试；再造一层接口假货，业务规则的测试就退化成“两个手写
+// 假货互相对表”——断言的全是自己写下的预期，不是系统行为。
 // Go 惯例：接口定义在消费侧、且只在有第二个实现时才定义——
-// 三个依赖当前都只有一个实现。
+// 四个依赖当前都只有一个实现。
 type Service struct {
 	obs  *observer.Observer
 	rec  *recorder.Recorder
 	pobs *pathobserver.Prober
+	snap *snapper.Engine
+	home string // plan 解析时展开 ~；装配注入，测试指临时目录
 }
 
 // New 装配 executor：观察者递系统事实，路径观察者递文件系统证据，
-// 记录者落盘。
-func New(obs *observer.Observer, rec *recorder.Recorder, pobs *pathobserver.Prober) *Service {
-	return &Service{obs: obs, rec: rec, pobs: pobs}
+// 记录者落盘，快照引擎执行备份；home 展开 scope 里的 ~。
+func New(obs *observer.Observer, rec *recorder.Recorder, pobs *pathobserver.Prober, snap *snapper.Engine, home string) *Service {
+	return &Service{obs: obs, rec: rec, pobs: pobs, snap: snap, home: home}
 }
 
 // SystemInfo 透传 observer 的系统事实。

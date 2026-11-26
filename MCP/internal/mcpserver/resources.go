@@ -3,11 +3,14 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
-// registerResources 挂三份只读资源（DESIGN 第 6 节）。
+// registerResources 挂四份只读资源（DESIGN 第 6 节）。
 func (a *api) registerResources(s *mcp.Server) {
 	s.AddResource(&mcp.Resource{
 		URI:         "pdp://state/inventory",
@@ -28,8 +31,34 @@ func (a *api) registerResources(s *mcp.Server) {
 		Name:        "guide",
 		Title:       "PDP 使用指南",
 		MIMEType:    "text/markdown",
-		Description: "四段使用说明：是什么、标准流程、写操作边界、数据位置",
+		Description: "使用说明：是什么、标准流程、备份范围判断、备份同步、写操作边界、数据位置",
 	}, a.resourceGuide)
+	s.AddResource(&mcp.Resource{
+		URI:      "pdp://backup/manifest",
+		Name:     "backup-manifest",
+		Title:    "备份快照账本",
+		MIMEType: "application/json",
+		Description: "当前快照的 manifest：每个文件的路径、SHA-256、大小、mtime、" +
+			"symlink 目标，以及来源清单的 revision",
+	}, a.resourceBackupManifest)
+}
+
+// resourceBackupManifest 返回当前快照的账本。
+// 还没有任何快照是“资源不存在”的标准 MCP 语义（首次 sync 前的
+// 合法状态），不是错误——ErrNoSnapshot 映射为 ResourceNotFoundError。
+func (a *api) resourceBackupManifest(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	m, err := a.svc.BackupManifest(ctx)
+	if err != nil {
+		if errors.Is(err, snapper.ErrNoSnapshot) {
+			return nil, mcp.ResourceNotFoundError(req.Params.URI)
+		}
+		return nil, err
+	}
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return resourceText(req, "application/json", string(b)), nil
 }
 
 // resourceInventory 返回全量清单。

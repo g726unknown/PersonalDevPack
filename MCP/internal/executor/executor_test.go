@@ -11,6 +11,7 @@ import (
 	"github.com/g726unknown/pdp/internal/observer"
 	"github.com/g726unknown/pdp/internal/pathobserver"
 	"github.com/g726unknown/pdp/internal/recorder"
+	"github.com/g726unknown/pdp/internal/snapper"
 )
 
 // stubExec 与 observer 测试里的函数式样式一致：
@@ -48,7 +49,7 @@ func pacmanStub(qOut, qErr string, qExit error, mOut string) *stubExec {
 func newTestService(t *testing.T, stub *stubExec) (*Service, *recorder.Recorder) {
 	t.Helper()
 	rec := recorder.Open(t.TempDir())
-	return New(observer.New(stub), rec, pathobserver.New(t.TempDir())), rec
+	return New(observer.New(stub), rec, pathobserver.New(t.TempDir()), snapper.New(t.TempDir(), t.TempDir()), t.TempDir()), rec
 }
 
 func TestAddPackageInstalled(t *testing.T) {
